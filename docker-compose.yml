@@ -1,10 +1,7 @@
 services:
   hesione:
-    build:
-      context: .
-      network: host
+    image: duoluotianshi/hesione:latest
     container_name: hesione
-    image: duoluotianshi/hesione:0.1
     ports:
       - "8000:8000"
     volumes:
