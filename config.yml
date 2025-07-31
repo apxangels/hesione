@@ -1,0 +1,19 @@
+receivers:
+  - name: vmcluster
+    label_name: job
+    label: elastic_exporters
+    prom: "http://192.168.100.113:8427"
+    prom_auth:
+      user: "userA"
+      password: "userApass"
+  - name: prometheus
+    label_name: job
+    label: prometheuss
+    prom: "http://192.168.100.118:9090"
+    auth:
+      user: "userB"
+      password: "userBpass"
+  - name: vmsingle
+    label_name: env
+    label: clown
+    prom: "http://192.168.100.108:8428"    

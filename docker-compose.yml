@@ -1,0 +1,12 @@
+services:
+  hesione:
+    build:
+      context: .
+      network: host
+    container_name: hesione
+    image: duoluotianshi/hesione:0.1
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.yml:/app/config.yaml:ro
+    restart: unless-stopped
