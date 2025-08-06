@@ -1,6 +1,8 @@
 services:
   hesione:
-    image: duoluotianshi/hesione:latest
+    build:
+      context: .
+    image: duoluotianshi/hesione:0.2
     container_name: hesione
     ports:
       - "8000:8000"

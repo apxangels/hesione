@@ -118,7 +118,7 @@ def patch_promql_params(
     if full_path.endswith("/query") or full_path.endswith("/query_range"):
         if "query" in params:
             params = dict(params)
-            params["query"] = inject_label(
+            params["query"] = inject_labels(
                 params["query"], label_name, label_value
             )
     elif full_path.endswith("/series"):
@@ -130,7 +130,7 @@ def patch_promql_params(
             if isinstance(values, str):
                 values = [values]
             new_values = [
-                inject_label(q, label_name, label_value) for q in values
+                inject_labels(q, label_name, label_value) for q in values
             ]
             params = dict(params)
             params[k] = new_values
