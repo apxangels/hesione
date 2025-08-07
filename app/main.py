@@ -152,7 +152,7 @@ async def proxy_to_prometheus(
 
     headers = dict(request.headers)
     headers.pop("host", None)
-    verify, cert = get_backend_ssl_params(receiver)
+    verify, cert = routines.get_backend_ssl_params(receiver)
     # creating proxy client
     async with httpx.AsyncClient(timeout=10, verify=verify, cert=cert) as client:
         try:
