@@ -155,3 +155,14 @@ def should_modify_request(request: Request) -> bool:
         "/api/v1/query",
     ]
     return any(request.url.path.endswith(p) for p in allowed_paths)
+# return (verify, cert) for httpx
+def get_backend_ssl_params(receiver: dict):
+
+    verify = receiver.get("verify", True)
+
+    if "cert" in receiver and "key" in receiver:
+        cert = (receiver["cert"], receiver["key"])
+    else:
+        cert = None
+
+    return verify, cert

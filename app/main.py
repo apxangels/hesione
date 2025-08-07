@@ -36,6 +36,10 @@ if not logger.hasHandlers():  # защищаем от дублирующих в�
 with open("config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
+ssl_config = config.get("proxy_ssl", {})
+SSL_CERTFILE = ssl_config.get("cert")
+SSL_KEYFILE = ssl_config.get("key")
+
 receiver_map = {r["name"]: r for r in config["receivers"]}
 security = HTTPBasic()
 
@@ -58,15 +62,16 @@ async def health_check():
     result = []
     for receiver in receiver_map.values():
         entry = {
-            "name": receiver["name"],
-            "prom_url": receiver["prom"],
-            "label_name": receiver["label_name"],
-            "label_value": receiver["label"],
+            "name": receiver.get("name"),
+            "prom_url": receiver.get("prom"),
+            "label_name": receiver.get("label_name", ""),
+            "label_value": receiver.get("label", ""),
             "auth": "yes" if "auth" in receiver else "no",
             "prom_auth": "yes" if "prom_auth" in receiver else "no",
         }
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
+            verify, cert = routines.get_backend_ssl_params(receiver)
+            async with httpx.AsyncClient(timeout=5, verify=verify, cert=cert) as client:
                 urls = [
                     f'{receiver["prom"]}/-/health',
                     f'{receiver["prom"]}/-/healthy',
@@ -147,23 +152,23 @@ async def proxy_to_prometheus(
 
     headers = dict(request.headers)
     headers.pop("host", None)
-
+    verify, cert = get_backend_ssl_params(receiver)
     # creating proxy client
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=10, verify=verify, cert=cert) as client:
         try:
             # gathering filtering label pair
             label_name = receiver.get("label_name")
             label_value = receiver.get("label")
             label_pair = (label_name, label_value)
             logger.info(f"Using label pair {label_name, label_value}")
-
+            should_add_labels = label_name is not None and label_value is not None
             # gathering query params from client (ie grafana request)
             params = dict(request.query_params)
             modified_body = body
 
             # modifying POST application/x-www-form-urlencoded
-            if routines.should_modify_request(request):
-                form = await request.body()
+            if should_add_labels and routines.should_modify_request(request):
+                form = body
                 parsed = parse_qs(form.decode())
                 if "query" in parsed:
                     original_query = parsed["query"][0]
@@ -179,7 +184,7 @@ async def proxy_to_prometheus(
 
                     logger.info("Modified form body: %s", modified_body)
             # if not form-urlencoded — processing query_params as it is
-            elif label_name and label_value:
+            if should_add_labels and not routines.should_modify_request(request):
                 params = routines.patch_promql_params(
                     params, label_name, label_value, full_path
                 )

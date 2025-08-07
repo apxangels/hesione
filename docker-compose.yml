@@ -5,5 +5,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./config.yml:/app/config.yaml:ro
+      - ./config.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs:ro
+      - ./vmcluster:/app/vmcluster:ro
     restart: unless-stopped
