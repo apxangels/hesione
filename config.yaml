@@ -17,8 +17,8 @@ receivers:
 
   - name: prometheus
     labels:
-      env: prod
-      job: prometheus
+      instance: "prometheus:9090"
+      project: standalone_prometheus
     prom: "http://192.168.100.118:9090"
     auth:
       user: "userB"

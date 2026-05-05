@@ -32,35 +32,30 @@ def upsert_matcher(matchers, name, value):
 
 def inject_labels_ast(query: str, labels: dict[str, str]) -> str:
     try:
-        expr = promql_parser.parse(query)
-
-        def walk(node):
-
-            if isinstance(node, promql_parser.VectorSelector):
-                for k, v in labels.items():
-                    upsert_matcher(node.matchers.matchers, k, v)
-
-            if not hasattr(node, "__dict__"):
-                return
-
-            for attr in vars(node).values():
-                if isinstance(attr, list):
-                    for item in attr:
-                        if hasattr(item, "__dict__"):
-                            walk(item)
-                elif hasattr(attr, "__dict__"):
-                    walk(attr)
-
-        walk(expr)
-
-        result = expr.prettify()
-        logger.info("AST result: %s", result)
-
-        return result
-
+        promql_parser.parse(query)
     except Exception as e:
-        logger.warning("AST inject failed: %s", e)
+        logger.warning("PromQL parse failed, passing through unchanged: %s", e)
         return query
+
+    label_pairs = ",".join(f'{k}="{v}"' for k, v in labels.items())
+
+    def inject_into_selector(m):
+        content = m.group(1).strip()
+        return "{" + (content + "," if content else "") + label_pairs + "}"
+
+    # Handles metric{existing="v"} and bare {} selectors
+    result = re.sub(r'\{([^}]*)\}', inject_into_selector, query)
+
+    # Bare metric name with no {} at all (e.g. `up`)
+    if '{' not in query:
+        result = re.sub(
+            r'^([a-zA-Z_:][a-zA-Z0-9_:]*)',
+            r'\1{' + label_pairs + '}',
+            query.strip(),
+        )
+
+    logger.info("AST result: %s -> %s", query, result)
+    return result
 
 def check_proxy_auth(
     receiver: dict, credentials: Optional[HTTPBasicCredentials]
@@ -111,9 +106,7 @@ def check_proxy_auth(
             )
 
 
-def get_prom_auth(
-    receiver: dict, request_credentials: Optional[HTTPBasicCredentials]
-) -> Optional[tuple]:
+def get_prom_auth(receiver: dict, request_credentials: Optional[HTTPBasicCredentials]) -> Optional[tuple]:
     auth_cfg = receiver.get("auth")
     prom_auth = receiver.get("prom_auth")
 
