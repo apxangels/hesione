@@ -2,7 +2,7 @@ services:
   hesione:
     build:
       context: .
-    image: apxangels/hesione:0.2
+    image: apxangels/hesione:0.3
     container_name: hesione
     ports:
       - "8000:8000"

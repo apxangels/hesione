@@ -6,8 +6,7 @@ import re
 
 import logging
 
-logger = logging.getLogger("main")
-logger.propagate = True
+logger = logging.getLogger(__name__)
 
 """
 inect_labels is query modificator:
@@ -16,34 +15,42 @@ inect_labels is query modificator:
 """
 
 
-def inject_labels(query: str, label_pair: tuple[str, str]) -> str:
-    label_name, label_value = label_pair
+def inject_labels(query: str, labels: dict[str, str]) -> str:
     try:
         expr = query.strip()
 
         if expr in ("", "1", "1+1", "vector(1)"):
             return expr
 
-        # add label to {}
+        def format_labels(lbls: dict):
+            return ",".join(f'{k}="{v}"' for k, v in lbls.items())
+
         pattern = re.compile(r"(\{[^}]*\})")
+
         if "{" in expr:
-            # add label to existing {}
-            def add_label(match):
+            def add_labels(match):
                 content = match.group(1).strip("{}")
-                labels = dict(l.split("=", 1) for l in content.split(",") if l)
-                labels[label_name] = f'"{label_value}"'
-                return (
-                    "{" + ",".join(f"{k}={v}" for k, v in labels.items()) + "}"
-                )
 
-            return pattern.sub(add_label, expr)
+                existing = {}
+                if content:
+                    for l in content.split(","):
+                        k, v = l.split("=", 1)
+                        existing[k] = v.strip('"')
+
+                # override / merge
+                for k, v in labels.items():
+                    existing[k] = f'"{v}"'
+
+                return "{" + ",".join(f"{k}={v}" for k, v in existing.items()) + "}"
+
+            return pattern.sub(add_labels, expr)
+
         else:
-            # if there are not {} let them be
-            return f'{expr}{{{label_name}="{label_value}"}}'
-    except Exception as e:
-        logger.warning("Failed to inject label into query: %s", e)
-        return query
+            return f"{expr}{{{format_labels(labels)}}}"
 
+    except Exception as e:
+        logger.warning("Failed to inject labels into query: %s", e)
+        return query
 
 def check_proxy_auth(
     receiver: dict, credentials: Optional[HTTPBasicCredentials]
@@ -112,28 +119,30 @@ def get_prom_auth(
     return None
 
 
-def patch_promql_params(
-    params: dict, label_name: str, label_value: str, full_path: str
-) -> dict:
+def patch_promql_params(params: dict, labels: dict, full_path: str) -> dict:
     if full_path.endswith("/query") or full_path.endswith("/query_range"):
         if "query" in params:
             params = dict(params)
-            params["query"] = inject_labels(
-                params["query"], label_name, label_value
-            )
+            params["query"] = inject_labels(params["query"], labels)
+
     elif full_path.endswith("/series"):
         match_keys = [k for k in params if k == "match[]"]
+
         for k in match_keys:
             values = (
                 params.getlist(k) if hasattr(params, "getlist") else params[k]
             )
+
             if isinstance(values, str):
                 values = [values]
+
             new_values = [
-                inject_labels(q, label_name, label_value) for q in values
+                inject_labels(q, labels) for q in values
             ]
+
             params = dict(params)
             params[k] = new_values
+
     return params
 
 

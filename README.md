@@ -45,3 +45,5 @@ Or download from hub:
 ```
 docker pull apxangels/hesione:latest
 ```
+### Setting in Grafana
+Set up URL as http:{IP}:{PORT}/name

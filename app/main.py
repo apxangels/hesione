@@ -15,22 +15,11 @@ import httpx
 from typing import Dict, Optional
 from starlette.routing import Match
 import base64
-import app.routines as routines
+import app.commonlib.routines as routines
 from urllib.parse import urlencode, parse_qs
-
-import logging
-
-logger = logging.getLogger("main")
-logger.setLevel(logging.INFO)
-logger.disabled = False
-
-handler = logging.StreamHandler()
-formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-
-if not logger.hasHandlers():  # защищаем от дублирующих выводов
-    logger.addHandler(handler)
-
+from app.commonlib.logging  import setup_logging, get_logger
+setup_logging()
+logger = get_logger(__name__)
 
 # gathering config values
 with open("config.yaml", "r") as f:
@@ -157,11 +146,17 @@ async def proxy_to_prometheus(
     async with httpx.AsyncClient(timeout=10, verify=verify, cert=cert) as client:
         try:
             # gathering filtering label pair
-            label_name = receiver.get("label_name")
-            label_value = receiver.get("label")
-            label_pair = (label_name, label_value)
-            logger.info(f"Using label pair {label_name, label_value}")
-            should_add_labels = label_name is not None and label_value is not None
+            labels = receiver.get("labels")
+
+            # backward compatibility
+            if not labels:
+                label_name = receiver.get("label_name")
+                label_value = receiver.get("label")
+                if label_name and label_value:
+                    labels = {label_name: label_value}
+
+            should_add_labels = bool(labels)
+            logger.info(f"Using labels {labels}")
             # gathering query params from client (ie grafana request)
             params = dict(request.query_params)
             modified_body = body
@@ -172,11 +167,8 @@ async def proxy_to_prometheus(
                 parsed = parse_qs(form.decode())
                 if "query" in parsed:
                     original_query = parsed["query"][0]
-                    modified_query = routines.inject_labels(
-                        original_query, label_pair
-                    )
+                    modified_query = routines.inject_labels(original_query, labels)
                     parsed["query"][0] = modified_query
-
                     modified_body = urlencode(parsed, doseq=True).encode()
                     content_length = str(len(modified_body))
                     headers["content-length"] = content_length
@@ -185,9 +177,7 @@ async def proxy_to_prometheus(
                     logger.info("Modified form body: %s", modified_body)
             # if not form-urlencoded — processing query_params as it is
             if should_add_labels and not routines.should_modify_request(request):
-                params = routines.patch_promql_params(
-                    params, label_name, label_value, full_path
-                )
+                params = routines.patch_promql_params(params, labels, full_path)
 
             resp = await client.request(
                 method=method,
@@ -221,7 +211,7 @@ async def proxy_to_prometheus(
         for k, v in resp.headers.items()
         if k.lower() not in excluded_headers
     ]
-    logging.info(f"Headers: {headers_to_send}")
+    logger.info(f"Headers: {headers_to_send}")
     return Response(
         content=resp.content,
         status_code=resp.status_code,
