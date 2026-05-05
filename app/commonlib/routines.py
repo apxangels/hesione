@@ -1,6 +1,7 @@
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from typing import Optional
 from fastapi import HTTPException, Request
+import promql_parser
 import urllib.parse
 import re
 
@@ -14,42 +15,51 @@ inect_labels is query modificator:
  - we must change labels into {} queries
 """
 
+def upsert_matcher(matchers, name, value):
+    for m in matchers:
+        if m.name == name:
+            m.value = value
+            m.op = promql_parser.MatchOp.Equal
+            return
 
-def inject_labels(query: str, labels: dict[str, str]) -> str:
+    matchers.append(
+        promql_parser.Matcher(
+            name=name,
+            value=value,
+            op=promql_parser.MatchOp.Equal
+        )
+    )
+
+def inject_labels_ast(query: str, labels: dict[str, str]) -> str:
     try:
-        expr = query.strip()
+        expr = promql_parser.parse(query)
 
-        if expr in ("", "1", "1+1", "vector(1)"):
-            return expr
+        def walk(node):
 
-        def format_labels(lbls: dict):
-            return ",".join(f'{k}="{v}"' for k, v in lbls.items())
-
-        pattern = re.compile(r"(\{[^}]*\})")
-
-        if "{" in expr:
-            def add_labels(match):
-                content = match.group(1).strip("{}")
-
-                existing = {}
-                if content:
-                    for l in content.split(","):
-                        k, v = l.split("=", 1)
-                        existing[k] = v.strip('"')
-
-                # override / merge
+            if isinstance(node, promql_parser.VectorSelector):
                 for k, v in labels.items():
-                    existing[k] = f'"{v}"'
+                    upsert_matcher(node.matchers.matchers, k, v)
 
-                return "{" + ",".join(f"{k}={v}" for k, v in existing.items()) + "}"
+            if not hasattr(node, "__dict__"):
+                return
 
-            return pattern.sub(add_labels, expr)
+            for attr in vars(node).values():
+                if isinstance(attr, list):
+                    for item in attr:
+                        if hasattr(item, "__dict__"):
+                            walk(item)
+                elif hasattr(attr, "__dict__"):
+                    walk(attr)
 
-        else:
-            return f"{expr}{{{format_labels(labels)}}}"
+        walk(expr)
+
+        result = expr.prettify()
+        logger.info("AST result: %s", result)
+
+        return result
 
     except Exception as e:
-        logger.warning("Failed to inject labels into query: %s", e)
+        logger.warning("AST inject failed: %s", e)
         return query
 
 def check_proxy_auth(
@@ -123,8 +133,7 @@ def patch_promql_params(params: dict, labels: dict, full_path: str) -> dict:
     if full_path.endswith("/query") or full_path.endswith("/query_range"):
         if "query" in params:
             params = dict(params)
-            params["query"] = inject_labels(params["query"], labels)
-
+            params["query"] = inject_labels_ast(params["query"], labels)
     elif full_path.endswith("/series"):
         match_keys = [k for k in params if k == "match[]"]
 
@@ -137,7 +146,7 @@ def patch_promql_params(params: dict, labels: dict, full_path: str) -> dict:
                 values = [values]
 
             new_values = [
-                inject_labels(q, labels) for q in values
+                inject_labels_ast(q, labels) for q in values
             ]
 
             params = dict(params)

@@ -167,7 +167,7 @@ async def proxy_to_prometheus(
                 parsed = parse_qs(form.decode())
                 if "query" in parsed:
                     original_query = parsed["query"][0]
-                    modified_query = routines.inject_labels(original_query, labels)
+                    modified_query = routines.inject_labels_ast(original_query, labels)
                     parsed["query"][0] = modified_query
                     modified_body = urlencode(parsed, doseq=True).encode()
                     content_length = str(len(modified_body))
